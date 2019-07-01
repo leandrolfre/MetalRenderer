@@ -152,7 +152,7 @@ fragment float4 fragment_main(VertexOut in [[stage_in]],
             discard_fragment();
     }
     
-    float3 ambientLight = 0.4 * baseColor;;
+    float3 ambientLight = 0.2 * baseColor;;
     float3 diffuseColor = 0.0;
     
     normalDir = normalize(normalDir);
@@ -185,15 +185,14 @@ fragment float4 fragment_main(VertexOut in [[stage_in]],
         
     }
     
-    float shadow = shadowCalc(in.shadowPosition, shadowTexture);
-    //half shadow_contribution = shadow + 0.1h;
+    half shadow = 1.0 - shadowCalc(in.shadowPosition, shadowTexture);
+    
+    half shadow_contribution = shadow + 0.4h;
     
     // Clamp shadow values to 1;
-    //shadow_contribution = min(1.0h, shadow_contribution);
+    shadow_contribution = min(1.0h, shadow_contribution);
     
-    //float3 color =  specularColor + diffuseColor + (ambientLight * baseColor);
-    float3 color = (ambientLight + (1.0 - shadow) * (diffuseColor + specularColor));
-    //float3 color = (ambientLight + shadow * (diffuseColor + specularColor));
+    float3 color = shadow_contribution * (diffuseColor + specularColor) + ambientLight;
     //return fog(in.position, float4(color, 1.0f));
     return float4(color, 1.0f);
 }
