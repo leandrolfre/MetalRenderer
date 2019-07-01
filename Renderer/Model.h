@@ -47,9 +47,8 @@ struct Submesh
 @property(nonatomic, readwrite, retain) id<MTLSamplerState> samplerState;
 
 //-(id) initWithMesh:(MTKMesh*) mesh device:(id<MTLDevice>) device colorFormat:(MTLPixelFormat)colorFormat;
--(id) initWithMDLMesh:(MDLMesh*) mesh device:(id<MTLDevice>) device colorFormat:(MTLPixelFormat)colorFormat;
--(id) initWithName:(NSString*) name device:(id<MTLDevice>) device colorFormat:(MTLPixelFormat)colorFormat;
+-(id) initWithMDLMesh:(MDLMesh*) mesh device:(id<MTLDevice>) device colorFormat:(MTLPixelFormat)colorFormat vertexDescriptor:(MDLVertexDescriptor*)vertexDescriptor;
+-(id) initWithName:(NSString*) name device:(id<MTLDevice>) device colorFormat:(MTLPixelFormat)colorFormat vertexDescriptor:(MDLVertexDescriptor*)vertexDescriptor;
 -(std::vector<Submesh>&)submeshes;
-+(MDLVertexDescriptor*) defaultVertexDescriptor;
 -(MDLAxisAlignedBoundingBox) getAABB;
 @end

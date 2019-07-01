@@ -17,6 +17,8 @@ const int MaxBuffersInFlight = 3;
 @interface Renderer : NSObject <MTKViewDelegate>
 {
     NSMutableArray* _models;
+    NSMutableArray* _uniformBuffers;
+    NSMutableArray* _lightPositionBuffers;
     MTKView* _view;
     Camera* _currentCamera;
     Camera* _shadowCamera;
@@ -44,6 +46,7 @@ const int MaxBuffersInFlight = 3;
     id<MTLDepthStencilState> _shadowDepthStencilState;
     id<MTLDepthStencilState> _gBufferDepthStencilState;
     
+    MTLVertexDescriptor* _defaultVertexDescriptor;
     
     
     id<MTLBuffer> _quadVertices;

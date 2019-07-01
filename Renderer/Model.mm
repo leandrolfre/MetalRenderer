@@ -33,11 +33,17 @@
     return self;
 }
 
--(id) initWithMDLMesh:(MDLMesh*)mdlMesh device:(id<MTLDevice>) device colorFormat:(MTLPixelFormat)colorFormat {
+-(id) initWithMDLMesh:(MDLMesh*)mdlMesh device:(id<MTLDevice>) device colorFormat:(MTLPixelFormat)colorFormat vertexDescriptor:(MDLVertexDescriptor *)vertexDescriptor {
     
     [mdlMesh addTangentBasisForTextureCoordinateAttributeNamed:MDLVertexAttributeTextureCoordinate
-                                         tangentAttributeNamed:MDLVertexAttributeTangent
-                                       bitangentAttributeNamed:MDLVertexAttributeBitangent];
+                                              normalAttributeNamed:MDLVertexAttributeNormal
+                                             tangentAttributeNamed:MDLVertexAttributeTangent];
+    
+    [mdlMesh addTangentBasisForTextureCoordinateAttributeNamed:MDLVertexAttributeTextureCoordinate
+                                             tangentAttributeNamed:MDLVertexAttributeTangent
+                                           bitangentAttributeNamed:MDLVertexAttributeBitangent];
+    
+    mdlMesh.vertexDescriptor = vertexDescriptor;
     
     MTKMesh* mesh = [[[MTKMesh alloc] initWithMesh:mdlMesh
                                             device:device
@@ -97,17 +103,17 @@
     return self;
 }
 
--(id) initWithName:(NSString*)name device:(id<MTLDevice>) device colorFormat:(MTLPixelFormat)colorFormat
+-(id) initWithName:(NSString*)name device:(id<MTLDevice>) device colorFormat:(MTLPixelFormat)colorFormat vertexDescriptor:(MDLVertexDescriptor *)vertexDescriptor
 {
     NSURL* assetUrl = [[NSBundle mainBundle] URLForResource:name withExtension:@"obj"];
     MTKMeshBufferAllocator* allocator = [[MTKMeshBufferAllocator alloc] initWithDevice:device];
     
     MDLAsset* asset = [[MDLAsset alloc] initWithURL:assetUrl
-                                   vertexDescriptor:[Model defaultVertexDescriptor]
+                                   vertexDescriptor:nil
                                     bufferAllocator:allocator];
     MDLMesh* mdlMesh = (MDLMesh*)[asset objectAtIndex:0];
     
-    if (self = [self initWithMDLMesh:mdlMesh device:device colorFormat:colorFormat]) {}
+    if (self = [self initWithMDLMesh:mdlMesh device:device colorFormat:colorFormat vertexDescriptor:vertexDescriptor]) {}
     
     return self;
 }
@@ -148,44 +154,6 @@
     descriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
     
     return descriptor;
-}
-
-+(MDLVertexDescriptor*) defaultVertexDescriptor
-{
-    unsigned int offset = 0;
-    MDLVertexDescriptor* vertexDescriptor = [[[MDLVertexDescriptor alloc] init] autorelease];
-    vertexDescriptor.attributes[VertexAttributePosition] = [[[MDLVertexAttribute alloc] initWithName:MDLVertexAttributePosition
-                                                                        format:MDLVertexFormatFloat3
-                                                                        offset:offset
-                                                                   bufferIndex:0] autorelease];
-    offset += 3;
-    vertexDescriptor.attributes[VertexAttributeNormal] = [[[MDLVertexAttribute alloc] initWithName:MDLVertexAttributeNormal
-                                                                        format:MDLVertexFormatFloat3
-                                                                        offset:sizeof(float) * offset
-                                                                   bufferIndex:0] autorelease];
-    offset += 3;
-    
-    vertexDescriptor.attributes[VertexAttributeTexcoord] = [[[MDLVertexAttribute alloc] initWithName:MDLVertexAttributeTextureCoordinate
-                                                                                              format:MDLVertexFormatFloat2
-                                                                                              offset:sizeof(float) * offset
-                                                                                         bufferIndex:0] autorelease];
-    
-    offset += 2;
-    
-    vertexDescriptor.attributes[VertexAttributeTangent] = [[[MDLVertexAttribute alloc] initWithName:MDLVertexAttributeTangent
-                                                                                             format:MDLVertexFormatFloat3
-                                                                                             offset:sizeof(float) * offset
-                                                                                        bufferIndex:0] autorelease];
-    
-    offset += 3;
-    
-    vertexDescriptor.attributes[VertexAttributeBitangent] = [[[MDLVertexAttribute alloc] initWithName:MDLVertexAttributeBitangent
-                                                                                             format:MDLVertexFormatFloat3
-                                                                                             offset:sizeof(float) * offset
-                                                                                        bufferIndex:0] autorelease];
-    offset += 3;
-    vertexDescriptor.layouts[0] = [[[MDLVertexBufferLayout alloc] initWithStride:(sizeof(float)*offset)] autorelease];
-    return vertexDescriptor;
 }
 
 -(MTLDepthStencilDescriptor*) buildDepthDescriptor

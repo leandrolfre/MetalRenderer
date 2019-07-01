@@ -61,11 +61,14 @@ typedef enum
 typedef struct
 {
     matrix_float4x4 projectionMatrix;
+    matrix_float4x4 projectionMatrixInverse;
     matrix_float4x4 viewMatrix;
     matrix_float4x4 modelViewMatrix;
     matrix_float4x4 modelMatrix;
     matrix_float4x4 shadowMatrix;
     matrix_float3x3 normalMatrix;
+    uint framebuffer_width;
+    uint framebuffer_height;
 } Uniforms;
 
 typedef struct

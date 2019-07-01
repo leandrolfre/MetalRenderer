@@ -18,6 +18,8 @@
     if (self = [super init])
     {
         _models = [[NSMutableArray alloc] init];
+        _uniformBuffers = [[NSMutableArray alloc] init];
+        _lightPositionBuffers = [[NSMutableArray alloc] init];
         _view = view;
         _fragUniforms.lightCount = 1;
         _inFlightSemaphore = dispatch_semaphore_create(MaxBuffersInFlight);
@@ -32,7 +34,17 @@
     _currentCamera = [[Camera alloc] init];
     [_currentCamera lookAt:targetZero];
     
-    Model* model = [[[Model alloc] initWithName:@"sponza" device:_device colorFormat:_view.colorPixelFormat] autorelease];
+    MDLVertexDescriptor *mvd =
+    MTKModelIOVertexDescriptorFromMetal(_defaultVertexDescriptor);
+    
+    // Indicate how each Metal vertex descriptor attribute maps to each ModelIO  attribute
+    mvd.attributes[VertexAttributePosition].name  = MDLVertexAttributePosition;
+    mvd.attributes[VertexAttributeTexcoord].name  = MDLVertexAttributeTextureCoordinate;
+    mvd.attributes[VertexAttributeNormal].name    = MDLVertexAttributeNormal;
+    mvd.attributes[VertexAttributeTangent].name   = MDLVertexAttributeTangent;
+    mvd.attributes[VertexAttributeBitangent].name = MDLVertexAttributeBitangent;
+    
+    Model* model = [[[Model alloc] initWithName:@"sponza" device:_device colorFormat:_view.colorPixelFormat vertexDescriptor:mvd] autorelease];
     [model setPosition:(simd::float3){0.0f, 0.0f, 0.0f}];
     model.rotation = (simd::float3){0.0f, 0.0f, 0.0f};
     model.scale = (simd::float3){0.001f, 0.001f, 0.001f};
@@ -154,9 +166,6 @@
         [renderEncoder endEncoding];
     }
     
-    id<MTLRenderCommandEncoder> renderEncoder = [commandBuffer renderCommandEncoderWithDescriptor:_view.currentRenderPassDescriptor];
-    [self renderCompositionPass:renderEncoder];
-    
     [self endFrame:commandBuffer];
 }
 
@@ -203,13 +212,25 @@
     _device = _view.device;
     _commandQueue = [_device newCommandQueue];
     
+    for(NSUInteger i = 0; i < MaxBuffersInFlight; i++)
+    {
+        // Indicate shared storage so that both the  CPU can access the buffers
+        const MTLResourceOptions storageMode = MTLResourceStorageModeShared;
+        
+        [_uniformBuffers addObject:[_device newBufferWithLength:sizeof(Uniforms)
+                                                        options:storageMode]];
+        
+        [_lightPositionBuffers addObject:[_device newBufferWithLength:sizeof(vector_float4)*LightCount
+                                                              options:storageMode]];
+    }
+    
     [self buildShadowRenderPassDescriptor];
     [self buildGbufferRenderPassDescriptor:_view.bounds.size];
     [self buildFinalRenderPassDescriptor];
     
     [self buildShadowPipeline];
     [self buildGbufferRenderPipelineState];
-    [self buildCompositionRenderPipelineState];
+    [self buildVertexDescriptor];
 }
 
 -(void)buildShadowRenderPassDescriptor
@@ -253,7 +274,7 @@
     pipelineDescriptor.vertexFunction = [[_device newDefaultLibrary] newFunctionWithName:@"vertex_depth"];
     pipelineDescriptor.fragmentFunction = nil;
     pipelineDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatInvalid;
-    pipelineDescriptor.vertexDescriptor = MTKMetalVertexDescriptorFromModelIO([Model defaultVertexDescriptor]);
+    pipelineDescriptor.vertexDescriptor = _defaultVertexDescriptor;
     pipelineDescriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
     _shadowPipelineState = [[_device newRenderPipelineStateWithDescriptor:pipelineDescriptor error:nil] retain];
     
@@ -275,7 +296,7 @@
     pipelineDescriptor.label = @"GBuffer state";
     pipelineDescriptor.vertexFunction = [lib newFunctionWithName:@"vertex_main"];
     pipelineDescriptor.fragmentFunction = [lib newFunctionWithName:@"gBufferFragment"];
-    pipelineDescriptor.vertexDescriptor = MTKMetalVertexDescriptorFromModelIO([Model defaultVertexDescriptor]);
+    pipelineDescriptor.vertexDescriptor = _defaultVertexDescriptor;
     _gBufferPipelineState = [[_device newRenderPipelineStateWithDescriptor:pipelineDescriptor error:nil] retain];
     
     MTLStencilDescriptor* stencilStateDesc = [[MTLStencilDescriptor new] autorelease];
@@ -296,17 +317,38 @@
     _gBufferDepthStencilState = [_device newDepthStencilStateWithDescriptor:depthStateDesc];
 }
 
--(void)buildCompositionRenderPipelineState
+-(void) buildVertexDescriptor
 {
-    MTLRenderPipelineDescriptor* pipelineDescriptor = [[[MTLRenderPipelineDescriptor alloc] init] autorelease];
-    id<MTLLibrary> lib = [_device newDefaultLibrary];
-    pipelineDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-    pipelineDescriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
-    pipelineDescriptor.label = @"GBuffer state";
-    pipelineDescriptor.vertexFunction = [lib newFunctionWithName:@"vertex_main"];
-    pipelineDescriptor.fragmentFunction = [lib newFunctionWithName:@"gBufferFragment"];
-    pipelineDescriptor.vertexDescriptor = MTKMetalVertexDescriptorFromModelIO([Model defaultVertexDescriptor]);
-    _gBufferPipelineState = [[_device newRenderPipelineStateWithDescriptor:pipelineDescriptor error:nil] retain];
+    unsigned int offset = 0;
+    _defaultVertexDescriptor = [[MTLVertexDescriptor alloc] init];
+    _defaultVertexDescriptor.attributes[VertexAttributePosition].format = MTLVertexFormatFloat3;
+    _defaultVertexDescriptor.attributes[VertexAttributePosition].offset = offset;
+    _defaultVertexDescriptor.attributes[VertexAttributePosition].bufferIndex = BufferIndexVertices;
+    offset += 3;
+    
+    _defaultVertexDescriptor.attributes[VertexAttributeNormal].format = MTLVertexFormatFloat3;
+    _defaultVertexDescriptor.attributes[VertexAttributeNormal].offset = sizeof(float) * offset;
+    _defaultVertexDescriptor.attributes[VertexAttributeNormal].bufferIndex = BufferIndexVertices;
+    offset += 3;
+    
+    _defaultVertexDescriptor.attributes[VertexAttributeTexcoord].format = MTLVertexFormatFloat2;
+    _defaultVertexDescriptor.attributes[VertexAttributeTexcoord].offset = sizeof(float) * offset;
+    _defaultVertexDescriptor.attributes[VertexAttributeTexcoord].bufferIndex = BufferIndexVertices;
+    offset += 2;
+    
+    _defaultVertexDescriptor.attributes[VertexAttributeTangent].format = MTLVertexFormatFloat3;
+    _defaultVertexDescriptor.attributes[VertexAttributeTangent].offset = sizeof(float) * offset;
+    _defaultVertexDescriptor.attributes[VertexAttributeTangent]. bufferIndex = BufferIndexVertices;
+    offset += 3;
+    
+    _defaultVertexDescriptor.attributes[VertexAttributeBitangent].format = MTLVertexFormatFloat3;
+    _defaultVertexDescriptor.attributes[VertexAttributeBitangent].offset = sizeof(float) * offset;
+    _defaultVertexDescriptor.attributes[VertexAttributeBitangent].bufferIndex = BufferIndexVertices;
+    offset += 3;
+    
+    _defaultVertexDescriptor.layouts[BufferIndexVertices].stride = (sizeof(float)*offset);
+    _defaultVertexDescriptor.layouts[BufferIndexVertices].stepRate = 1;
+    _defaultVertexDescriptor.layouts[BufferIndexVertices].stepFunction = MTLVertexStepFunctionPerVertex;
 }
 
 #pragma render
