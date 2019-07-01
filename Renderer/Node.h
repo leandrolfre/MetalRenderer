@@ -12,12 +12,12 @@
 
 @interface Node : NSObject
 {
-    simd::float4 _position;
+    simd::float3 _position;
     simd::float3 _rotation;
     simd::float3 _scale;
 }
 
-@property(nonatomic, readwrite, assign) simd::float4 position;
+@property(nonatomic, readwrite, assign) simd::float3 position;
 @property(nonatomic, readwrite, assign) simd::float3 rotation;
 @property(nonatomic, readwrite, assign) simd::float3 scale;
 

@@ -25,10 +25,10 @@
         _aspect = 1.0f;
         _nearZ = 0.001f;
         _farZ = 1000.0f;
-        _position = (simd_float4) {0.0, 0.0, 0.0, 1.0};
+        _position = (simd_float3) {0.0, 0.0, 0.0};
         _up = (simd_float3){0.0f, 1.0f, 0.0f};
         _front = ((simd_float3){0.0f, 0.0f, -1.0f});
-        _front = simd_normalize(_position.xyz - _front);
+        _front = simd_normalize(_position - _front);
         _right = simd_normalize(simd_cross(_up, _front));
         _up = simd_normalize(simd_cross(_front, _right));
         _isOrthographic = false;
@@ -42,7 +42,7 @@
     {
         _nearZ = near;
         _farZ = far;
-        _position = (simd_float4) {0.0, 0.0, 0.0, 1.0};
+        _position = (simd_float3) {0.0, 0.0, 0.0};
         _b = bottom;
         _r = right;
         _l = left;
@@ -90,18 +90,18 @@
     return matrix_invert(camMatrix);
 }
 
--(void) lookAt:(CGPoint)dir
-{
-    simd_float3 f;
-    f.x = cos(dir.y) * cos(dir.x);
-    f.y = sin(dir.y);
-    f.z = cos(dir.y) * sin(dir.x);
-    _front = simd_normalize(f);
-    _right = simd_normalize(simd_cross(_front, _up));  
-    _up = simd_normalize(simd_cross(_right, _front));
-}
+//-(void) lookAt:(CGPoint)dir
+//{
+//    simd_float3 f;
+//    f.x = cos(dir.y) * cos(dir.x);
+//    f.y = sin(dir.y);
+//    f.z = cos(dir.y) * sin(dir.x);
+//    _front = simd_normalize(f);
+//    _right = simd_normalize(simd_cross(_front, _up));
+//    _up = simd_normalize(simd_cross(_right, _front));
+//}
 
--(void) reallyLookAt:(simd_float3)target
+-(void) lookAt:(simd_float3)target
 {
     simd_float3 f = _position.xyz - target;
     _front = simd_normalize(f);

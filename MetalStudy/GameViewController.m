@@ -20,7 +20,7 @@
     [super viewDidLoad];
     //init metal
     _view = (MTKView *)self.view;
-    _renderer = [[Renderer alloc] initWithView:(MTKView *)self.view mode:RenderModeForward];
+    _renderer = [[Renderer alloc] initWithView:(MTKView *)self.view];
     
     NSPanGestureRecognizer* gesture = [[NSPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleGesture:)];
     [_view addGestureRecognizer:gesture];

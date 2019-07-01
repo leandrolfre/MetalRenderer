@@ -71,7 +71,7 @@ typedef struct
 typedef struct
 {
     unsigned int lightCount;
-    vector_float4 cameraPos;
+    vector_float3 cameraPos;
     unsigned int hasNormalMap;
     unsigned int hasSpecularMap;
 } FragmentUniforms;

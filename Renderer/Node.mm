@@ -17,7 +17,7 @@
 -(instancetype)init
 {
     if (self = [super init]) {
-        self.position = (simd::float4){0.0f, 0.0f, 0.0f, 1.0f};
+        self.position = (simd::float3){0.0f, 0.0f, 0.0f};
         self.rotation = (simd::float3){0.0f, 0.0f, 0.0f};
         self.scale = (simd::float3){1.0f, 1.0f, 1.0f};
     }

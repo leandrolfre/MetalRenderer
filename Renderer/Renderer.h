@@ -11,45 +11,52 @@
 #import <CoreGraphics/CoreGraphics.h>
 
 @class Camera;
-@class Model;
-typedef enum
-{
-    RenderModeForward,
-    RenderModeDeferred
-} RenderMode;
 
 const int LightCount = 5;
+const int MaxBuffersInFlight = 3;
 @interface Renderer : NSObject <MTKViewDelegate>
 {
+    NSMutableArray* _models;
     MTKView* _view;
+    Camera* _currentCamera;
+    Camera* _shadowCamera;
+    
+    MTLRenderPassDescriptor* _shadowRenderPassDescriptor;
+    MTLRenderPassDescriptor* _gBufferRenderPassDescriptor;
+    MTLRenderPassDescriptor* _finalRenderPassDescriptor;
+    
+    CGFloat x, y;
+    MDLAxisAlignedBoundingBox _sceneAABB;
+    
     id<MTLDevice> _device;
     id<MTLCommandQueue> _commandQueue;
-    NSMutableArray* _models;
+    
     id<MTLTexture> _shadowTexture;
     id<MTLTexture> _albedoTexture;
     id<MTLTexture> _normalTexture;
     id<MTLTexture> _positionTexture;
     id<MTLTexture> _depthTexture;
-    MTLRenderPassDescriptor* _shadowRenderPassDescriptor;
+    
     id<MTLRenderPipelineState> _shadowPipelineState;
-    MTLRenderPassDescriptor* _gBufferRenderPassDescriptor;
     id<MTLRenderPipelineState> _gBufferPipelineState;
-    id<MTLRenderPipelineState> _compositionPipelineState;
+    id<MTLRenderPipelineState> _directionalLightPipelineState;
+    id<MTLDepthStencilState> _directionalLightDepthStencilState;
+    id<MTLDepthStencilState> _shadowDepthStencilState;
+    id<MTLDepthStencilState> _gBufferDepthStencilState;
+    
+    
+    
     id<MTLBuffer> _quadVertices;
     id<MTLBuffer> _quadTexCoords;
-    Light _lights[LightCount];
-    Camera* _currentCamera;
-    Camera* _shadowCamera;
+    
+    Light _pointLights[LightCount];
+    Light _directionalLight;
     Uniforms _uniforms;
     FragmentUniforms _fragUniforms;
-    float rotate;
-    double x, y;
-    RenderMode _renderMode;
-    MDLAxisAlignedBoundingBox _sceneAABB;
-    Model* _lightDebug;
+    dispatch_semaphore_t _inFlightSemaphore;
 }
 
--(id)initWithView:(MTKView*)view mode:(RenderMode) renderMode;
+-(id)initWithView:(MTKView*)view;
 -(void)zoomCam:(CGFloat)delta sensitivity:(float)sensitivity;
 -(void)lookAt:(CGPoint) t;
 @end

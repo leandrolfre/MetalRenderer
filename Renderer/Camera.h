@@ -36,6 +36,5 @@
 +(id)orthographic:(float)bottom top:(float)top left:(float)left right:(float)right near:(float)near far:(float)far;
 -(matrix_float4x4) projection;
 -(matrix_float4x4) view;
--(void) lookAt:(CGPoint)dir;
--(void)reallyLookAt:(simd_float3)target;
+-(void)lookAt:(simd_float3)target;
 @end
