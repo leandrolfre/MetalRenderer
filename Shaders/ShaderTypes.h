@@ -23,11 +23,14 @@
 
 typedef NS_ENUM(NSInteger, BufferIndex)
 {
-    BufferIndexVertices                 = 0,
-    BufferIndexUniforms                 = 11,
-    BufferIndexLight                    = 12,
-    BufferIndexFragmentUniforms         = 13,
-    BufferIndexFragmentMaterial         = 14
+    BufferIndexPosition                 = 0,
+    BufferIndexGeneric                  = 1,
+    BufferIndexUniforms                 = 2,
+    BufferIndexLightsData               = 3,
+    BufferIndexLightsPosition           = 4,
+    BufferIndexLight                    = 11,
+    BufferIndexFragmentUniforms         = 12,
+    BufferIndexFragmentMaterial         = 13
 };
 
 typedef enum
@@ -63,12 +66,9 @@ typedef struct
     matrix_float4x4 projectionMatrix;
     matrix_float4x4 projectionMatrixInverse;
     matrix_float4x4 viewMatrix;
-    matrix_float4x4 modelViewMatrix;
     matrix_float4x4 modelMatrix;
     matrix_float4x4 shadowMatrix;
     matrix_float3x3 normalMatrix;
-    uint framebuffer_width;
-    uint framebuffer_height;
 } Uniforms;
 
 typedef struct

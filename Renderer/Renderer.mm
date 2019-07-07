@@ -21,8 +21,13 @@
         _uniformBuffers = [[NSMutableArray alloc] init];
         _lightPositionBuffers = [[NSMutableArray alloc] init];
         _view = view;
-        _fragUniforms.lightCount = 1;
+        //_fragUniforms.lightCount = 1;
+        _currentBufferIndex = 0;
         _inFlightSemaphore = dispatch_semaphore_create(MaxBuffersInFlight);
+        
+        [self loadMetal];
+        [self loadScene];
+        
         [self mtkView:_view drawableSizeWillChange:_view.bounds.size];
     }
     return self;
@@ -56,6 +61,8 @@
     _directionalLight.type = DirectionalLight;
     _directionalLight.attenuation = (vector_float3){0.2, 0.4, 0.5};
     
+    _directionalLightBuffer = [_device newBufferWithBytes:&_directionalLight length:sizeof(Light) options:MTLResourceUsageRead];
+    
     //        _lights[0] = [self buildDefaultLight];
     //        _lights[0].position = (vector_float3){0.0f, 0.5f, -0.1f};
     //        _lights[0].type = PointLight;
@@ -65,7 +72,7 @@
     
     _shadowCamera = [[Camera orthographic:-2 top:2 left:-2 right:2 near:0.01f far:100.0f] retain];
     _shadowCamera.position = _directionalLight.position;
-    [_shadowCamera lookAt:targetZero];
+    [_shadowCamera lookAt:_shadowCamera.position -targetZero];
     
     float quadVertices[] = {
         -1.0, 1.0,
@@ -76,17 +83,7 @@
         1.0, -1.0
     };
     
-    float quadTexCoords[] = {
-        0.0, 0.0,
-        1.0, 1.0,
-        0.0, 1.0,
-        0.0, 0.0,
-        1.0, 0.0,
-        1.0, 1.0
-    };
-    
     _quadVertices = [_device newBufferWithBytes:quadVertices length:sizeof(float)*12 options:MTLResourceUsageRead];
-    _quadTexCoords = [_device newBufferWithBytes:quadTexCoords length:sizeof(float)*12 options:MTLResourceUsageRead];
 }
 
 -(id<MTLCommandBuffer>)beginFrame:(SEL)update
@@ -124,14 +121,19 @@
     [commandBuffer commit];
 }
 
--(void)updateBuffers
+-(void)updatePerFrameUniforms
 {
-    
+    _currentBufferIndex = (_currentBufferIndex+1) % MaxBuffersInFlight;
+    Uniforms* uniforms = (Uniforms*)_uniformBuffers[_currentBufferIndex].contents;
+    uniforms->shadowMatrix = matrix_multiply(_shadowCamera.projection, [_shadowCamera view]);
+    uniforms->projectionMatrix = _currentCamera.projection;
+    uniforms->projectionMatrixInverse = matrix_invert(uniforms->projectionMatrix);
+    uniforms->viewMatrix = [_currentCamera view];
 }
 
 - (void)drawInMTKView:(nonnull MTKView *)view
 {
-    id<MTLCommandBuffer> commandBuffer = [self beginFrame:@selector(updateBuffers)];
+    id<MTLCommandBuffer> commandBuffer = [self beginFrame:@selector(updatePerFrameUniforms)];
     
     id<MTLRenderCommandEncoder> shadowEncoder = [commandBuffer renderCommandEncoderWithDescriptor:_shadowRenderPassDescriptor];
     [self renderShadowPass:shadowEncoder];
@@ -159,9 +161,11 @@
         
         [self renderDirectionalLightPass:renderEncoder];
         
-        [self drawPointLightMask:renderEncoder];
+        //[self drawPointLightMask:renderEncoder];
         
-        [self drawPointLights:renderEncoder];
+        //[self drawPointLights:renderEncoder];
+        
+        //[self drawSky:renderEncoder];
         
         [renderEncoder endEncoding];
     }
@@ -172,7 +176,8 @@
 - (void)mtkView:(nonnull MTKView *)view drawableSizeWillChange:(CGSize)size
 {
     _currentCamera.aspect = size.width / (float)size.height;
-    _uniforms.projectionMatrix = _currentCamera.projection;
+    Uniforms* uniforms = (Uniforms*)_uniformBuffers[_currentBufferIndex].contents;
+    uniforms->projectionMatrix = _currentCamera.projection;
     [self buildGbufferRenderPassDescriptor:size];
 }
 
@@ -191,7 +196,6 @@
     t.y *= sensitivity;
     x+=M_PI * (t.x/180.0f);
     y+=M_PI * (t.y/180.0f);
-    
     simd_float3 f;
     f.x = cos(y) * cos(x);
     f.y = sin(y);
@@ -204,33 +208,31 @@
 
 -(void) loadMetal
 {
-    _view.sampleCount = 4;
+    _device = MTLCreateSystemDefaultDevice();
+    _commandQueue = [_device newCommandQueue];
+    _view.device = _device;
+    //_view.sampleCount = 4;
     _view.delegate = self;
     _view.clearColor = MTLClearColorMake(0.73, 0.92, 1.0, 1.0);
-    _view.depthStencilPixelFormat = MTLPixelFormatDepth32Float;
-    
-    _device = _view.device;
-    _commandQueue = [_device newCommandQueue];
+    _view.depthStencilPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
+    _view.colorPixelFormat = MTLPixelFormatBGRA8Unorm;;
     
     for(NSUInteger i = 0; i < MaxBuffersInFlight; i++)
     {
-        // Indicate shared storage so that both the  CPU can access the buffers
-        const MTLResourceOptions storageMode = MTLResourceStorageModeShared;
-        
         [_uniformBuffers addObject:[_device newBufferWithLength:sizeof(Uniforms)
-                                                        options:storageMode]];
+                                                        options:MTLResourceStorageModeShared]];
         
-        [_lightPositionBuffers addObject:[_device newBufferWithLength:sizeof(vector_float4)*LightCount
-                                                              options:storageMode]];
+//        [_lightPositionBuffers addObject:[_device newBufferWithLength:sizeof(vector_float4)*LightCount
+//                                                              options:MTLResourceStorageModeShared]];
     }
-    
+    [self buildVertexDescriptor];
     [self buildShadowRenderPassDescriptor];
     [self buildGbufferRenderPassDescriptor:_view.bounds.size];
+    [self buildDirectionalLightRenderPipelineState];
     [self buildFinalRenderPassDescriptor];
     
     [self buildShadowPipeline];
     [self buildGbufferRenderPipelineState];
-    [self buildVertexDescriptor];
 }
 
 -(void)buildShadowRenderPassDescriptor
@@ -247,9 +249,8 @@
     _gBufferRenderPassDescriptor = [[MTLRenderPassDescriptor renderPassDescriptor] retain];
     _albedoTexture = [self buildTexture:MTLPixelFormatBGRA8Unorm size:size label:@"Albedo Texture"];
     _normalTexture = [self buildTexture:MTLPixelFormatRGBA16Float size:size label:@"Normal Texture"];
-    _positionTexture = [self buildTexture:MTLPixelFormatRGBA16Float size:size label:@"Position Texture"];
-    
-    NSArray* textures = [NSArray arrayWithObjects:_albedoTexture, _normalTexture, _positionTexture, nil];
+    _depthTexture = [self buildTexture:MTLPixelFormatR32Float size:size label:@"Depth Texture"];
+    NSArray* textures = [NSArray arrayWithObjects:_albedoTexture, _normalTexture, _depthTexture, nil];
     int position = 0;
     
     for (id<MTLTexture> texture in textures) {
@@ -276,6 +277,7 @@
     pipelineDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatInvalid;
     pipelineDescriptor.vertexDescriptor = _defaultVertexDescriptor;
     pipelineDescriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+    
     _shadowPipelineState = [[_device newRenderPipelineStateWithDescriptor:pipelineDescriptor error:nil] retain];
     
     MTLDepthStencilDescriptor *depthStateDesc = [[[MTLDepthStencilDescriptor alloc] init] autorelease];
@@ -289,12 +291,14 @@
 {
     MTLRenderPipelineDescriptor* pipelineDescriptor = [[[MTLRenderPipelineDescriptor alloc] init] autorelease];
     id<MTLLibrary> lib = [_device newDefaultLibrary];
+    //TODO: Store pixel format per color attachment
     pipelineDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
     pipelineDescriptor.colorAttachments[1].pixelFormat = MTLPixelFormatRGBA16Float;
-    pipelineDescriptor.colorAttachments[2].pixelFormat = MTLPixelFormatRGBA16Float;
-    pipelineDescriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+    pipelineDescriptor.colorAttachments[2].pixelFormat = MTLPixelFormatR32Float;
+    pipelineDescriptor.depthAttachmentPixelFormat = _view.depthStencilPixelFormat;
+    pipelineDescriptor.stencilAttachmentPixelFormat = _view.depthStencilPixelFormat;
     pipelineDescriptor.label = @"GBuffer state";
-    pipelineDescriptor.vertexFunction = [lib newFunctionWithName:@"vertex_main"];
+    pipelineDescriptor.vertexFunction = [lib newFunctionWithName:@"gBufferVertex"];
     pipelineDescriptor.fragmentFunction = [lib newFunctionWithName:@"gBufferFragment"];
     pipelineDescriptor.vertexDescriptor = _defaultVertexDescriptor;
     _gBufferPipelineState = [[_device newRenderPipelineStateWithDescriptor:pipelineDescriptor error:nil] retain];
@@ -317,38 +321,78 @@
     _gBufferDepthStencilState = [_device newDepthStencilStateWithDescriptor:depthStateDesc];
 }
 
+-(void)buildDirectionalLightRenderPipelineState
+{
+    id<MTLLibrary> lib = [_device newDefaultLibrary];
+    MTLRenderPipelineDescriptor* pipelineDescriptor = [[[MTLRenderPipelineDescriptor alloc] init] autorelease];
+    
+    pipelineDescriptor.label = @"Directional Lighting";
+    pipelineDescriptor.vertexDescriptor = nil;
+    pipelineDescriptor.vertexFunction = [lib newFunctionWithName:@"directionalLightVertex"];
+    pipelineDescriptor.fragmentFunction = [lib newFunctionWithName:@"directionalLightFragment"];
+    pipelineDescriptor.colorAttachments[0].pixelFormat = _view.colorPixelFormat;
+    pipelineDescriptor.depthAttachmentPixelFormat = _view.depthStencilPixelFormat;
+    pipelineDescriptor.stencilAttachmentPixelFormat = _view.depthStencilPixelFormat;
+    
+    _directionalLightPipelineState = [_device newRenderPipelineStateWithDescriptor:pipelineDescriptor
+                                                                             error:nil];
+    
+    MTLStencilDescriptor *stencilStateDesc = [[[MTLStencilDescriptor alloc] init] autorelease];
+    stencilStateDesc.stencilCompareFunction = MTLCompareFunctionAlways;
+    stencilStateDesc.stencilFailureOperation = MTLStencilOperationKeep;
+    stencilStateDesc.depthFailureOperation = MTLStencilOperationKeep;
+    stencilStateDesc.depthStencilPassOperation = MTLStencilOperationKeep;
+    stencilStateDesc.readMask = 0xFF;
+    stencilStateDesc.writeMask = 0x0;
+
+    MTLDepthStencilDescriptor *depthStateDesc = [[[MTLDepthStencilDescriptor alloc] init] autorelease];
+    depthStateDesc.label = @"Deferred Directional Lighting";
+    depthStateDesc.depthWriteEnabled = NO;
+    depthStateDesc.depthCompareFunction = MTLCompareFunctionAlways;
+    depthStateDesc.frontFaceStencil = stencilStateDesc;
+    depthStateDesc.backFaceStencil = stencilStateDesc;
+    
+    _directionalLightDepthStencilState = [_device newDepthStencilStateWithDescriptor:depthStateDesc];
+}
+
 -(void) buildVertexDescriptor
 {
     unsigned int offset = 0;
     _defaultVertexDescriptor = [[MTLVertexDescriptor alloc] init];
     _defaultVertexDescriptor.attributes[VertexAttributePosition].format = MTLVertexFormatFloat3;
     _defaultVertexDescriptor.attributes[VertexAttributePosition].offset = offset;
-    _defaultVertexDescriptor.attributes[VertexAttributePosition].bufferIndex = BufferIndexVertices;
+    _defaultVertexDescriptor.attributes[VertexAttributePosition].bufferIndex = BufferIndexPosition;
     offset += 3;
+    
+    _defaultVertexDescriptor.layouts[BufferIndexPosition].stride = (sizeof(float)*offset);
+    _defaultVertexDescriptor.layouts[BufferIndexPosition].stepRate = 1;
+    _defaultVertexDescriptor.layouts[BufferIndexPosition].stepFunction = MTLVertexStepFunctionPerVertex;
+    
+    offset = 0;
     
     _defaultVertexDescriptor.attributes[VertexAttributeNormal].format = MTLVertexFormatFloat3;
     _defaultVertexDescriptor.attributes[VertexAttributeNormal].offset = sizeof(float) * offset;
-    _defaultVertexDescriptor.attributes[VertexAttributeNormal].bufferIndex = BufferIndexVertices;
+    _defaultVertexDescriptor.attributes[VertexAttributeNormal].bufferIndex = BufferIndexGeneric;
     offset += 3;
     
     _defaultVertexDescriptor.attributes[VertexAttributeTexcoord].format = MTLVertexFormatFloat2;
     _defaultVertexDescriptor.attributes[VertexAttributeTexcoord].offset = sizeof(float) * offset;
-    _defaultVertexDescriptor.attributes[VertexAttributeTexcoord].bufferIndex = BufferIndexVertices;
+    _defaultVertexDescriptor.attributes[VertexAttributeTexcoord].bufferIndex = BufferIndexGeneric;
     offset += 2;
     
     _defaultVertexDescriptor.attributes[VertexAttributeTangent].format = MTLVertexFormatFloat3;
     _defaultVertexDescriptor.attributes[VertexAttributeTangent].offset = sizeof(float) * offset;
-    _defaultVertexDescriptor.attributes[VertexAttributeTangent]. bufferIndex = BufferIndexVertices;
+    _defaultVertexDescriptor.attributes[VertexAttributeTangent]. bufferIndex = BufferIndexGeneric;
     offset += 3;
     
     _defaultVertexDescriptor.attributes[VertexAttributeBitangent].format = MTLVertexFormatFloat3;
     _defaultVertexDescriptor.attributes[VertexAttributeBitangent].offset = sizeof(float) * offset;
-    _defaultVertexDescriptor.attributes[VertexAttributeBitangent].bufferIndex = BufferIndexVertices;
+    _defaultVertexDescriptor.attributes[VertexAttributeBitangent].bufferIndex = BufferIndexGeneric;
     offset += 3;
     
-    _defaultVertexDescriptor.layouts[BufferIndexVertices].stride = (sizeof(float)*offset);
-    _defaultVertexDescriptor.layouts[BufferIndexVertices].stepRate = 1;
-    _defaultVertexDescriptor.layouts[BufferIndexVertices].stepFunction = MTLVertexStepFunctionPerVertex;
+    _defaultVertexDescriptor.layouts[BufferIndexGeneric].stride = (sizeof(float)*offset);
+    _defaultVertexDescriptor.layouts[BufferIndexGeneric].stepRate = 1;
+    _defaultVertexDescriptor.layouts[BufferIndexGeneric].stepFunction = MTLVertexStepFunctionPerVertex;
 }
 
 #pragma render
@@ -362,10 +406,6 @@
     [renderEncoder setDepthBias:0.015 slopeScale:7 clamp:0.02];
     [renderEncoder setCullMode:MTLCullModeBack];
     
-    _uniforms.viewMatrix = [_shadowCamera view];
-    _uniforms.projectionMatrix = _shadowCamera.projection;
-    _uniforms.shadowMatrix = matrix_multiply(_uniforms.projectionMatrix, _uniforms.viewMatrix);
-    
     for(Model* model : _models)
     {
         [self draw:renderEncoder model:model];
@@ -377,13 +417,13 @@
 
 -(void)draw: (id<MTLRenderCommandEncoder>) renderEncoder model:(Model*)model
 {
-    _uniforms.modelViewMatrix = matrix_multiply([_currentCamera view], [model modelMatrix]);
-    _uniforms.modelMatrix = [model modelMatrix];
-    _uniforms.normalMatrix = math::normal(_uniforms.modelMatrix);
+    Uniforms* uniforms = (Uniforms*)_uniformBuffers[_currentBufferIndex].contents;
+    uniforms->modelMatrix = [model modelMatrix];
+    uniforms->normalMatrix = math::normal(uniforms->modelMatrix);
     
     _fragUniforms.cameraPos = _currentCamera.position;
     
-    [renderEncoder setVertexBytes:&_uniforms length:sizeof(Uniforms) atIndex:BufferIndexUniforms];
+    [renderEncoder setVertexBuffer:_uniformBuffers[_currentBufferIndex] offset:0 atIndex:BufferIndexUniforms];
     
     int index = 0;
     for (id<MTLBuffer> buffer in model.buffers) {
@@ -449,9 +489,6 @@
     
     [renderEncoder setFragmentTexture:_shadowTexture atIndex:Shadow];
     
-    _uniforms.projectionMatrix = _currentCamera.projection;
-    _uniforms.viewMatrix = [_currentCamera view];
-    
     for(Model* model : _models)
     {
         [self draw:renderEncoder model:model];
@@ -470,17 +507,18 @@
     
     [renderEncoder setCullMode:MTLCullModeBack];
     [renderEncoder setStencilReferenceValue:128];
-    [renderEncoder setVertexBuffer:_quadVertices offset:0 atIndex:VertexAttributePosition];
-    [renderEncoder setVertexBuffer:_quadTexCoords offset:0 atIndex:VertexAttributeTexcoord];
+    [renderEncoder setVertexBuffer:_quadVertices offset:0 atIndex:BufferIndexPosition];
+    [renderEncoder setVertexBuffer:_uniformBuffers[_currentBufferIndex] offset:0 atIndex:BufferIndexUniforms];
     
     [renderEncoder setFragmentTexture:_albedoTexture atIndex:0];
     [renderEncoder setFragmentTexture:_normalTexture atIndex:1];
-    [renderEncoder setFragmentTexture:_positionTexture atIndex:2];
+    [renderEncoder setFragmentTexture:_depthTexture atIndex:2];
+    //[renderEncoder setFragmentBytes:&_directionalLight length:sizeof(Light) atIndex:BufferIndexLight];
+    [renderEncoder setFragmentBuffer:_directionalLightBuffer offset:0 atIndex:BufferIndexLight];
     [renderEncoder setFragmentBytes:&_fragUniforms length:sizeof(FragmentUniforms) atIndex:BufferIndexFragmentUniforms];
     
     [renderEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
     
-    [renderEncoder endEncoding];
     [renderEncoder popDebugGroup];
 }
 

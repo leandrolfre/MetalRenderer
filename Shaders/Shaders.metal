@@ -39,13 +39,14 @@ typedef struct
     float2 texCoord;
     float3 worldTangent;
     float3 worldBitangent;
+    float3 eyePosition;
 } VertexOut;
 
 typedef struct
 {
     float4 albedo [[color(0)]];
     float4 normal [[color(1)]];
-    float4 position [[color(2)]];
+    float depth [[color(2)]];
 } GbufferOut;
 
 float4 fog(float4 position, float4 color)
@@ -96,7 +97,7 @@ vertex VertexOut vertex_main(const VertexIn in [[ stage_in ]],
                              constant Uniforms& uniforms [[ buffer(BufferIndexUniforms) ]])
 {
     VertexOut out;
-    out.position = uniforms.projectionMatrix * uniforms.modelViewMatrix  * float4(in.position, 1.0);
+    out.position = uniforms.projectionMatrix * uniforms.viewMatrix * uniforms.modelMatrix  * float4(in.position, 1.0);
     out.worldNormal = uniforms.normalMatrix * in.normal;
     out.worldTangent = uniforms.normalMatrix * in.tangent;
     out.worldBitangent = uniforms.normalMatrix * in.bitangent;
@@ -152,7 +153,7 @@ fragment float4 fragment_main(VertexOut in [[stage_in]],
             discard_fragment();
     }
     
-    float3 ambientLight = 0.2 * baseColor;;
+    float3 ambientLight = 0.2 * baseColor;
     float3 diffuseColor = 0.0;
     
     normalDir = normalize(normalDir);
@@ -197,6 +198,27 @@ fragment float4 fragment_main(VertexOut in [[stage_in]],
     return float4(color, 1.0f);
 }
 
+vertex VertexOut gBufferVertex(VertexIn in [[stage_in]],
+                                 constant Uniforms  &uniforms  [[buffer(BufferIndexUniforms)]])
+{
+    VertexOut out;
+    
+    float4 modelPos = float4(in.position, 1.0);
+    out.worldPosition = uniforms.modelMatrix  * modelPos;
+    float4 eyePos = uniforms.viewMatrix * out.worldPosition;
+    out.position = uniforms.projectionMatrix * eyePos;
+    
+    out.worldNormal = uniforms.normalMatrix * in.normal;
+    out.worldTangent = uniforms.normalMatrix * in.tangent;
+    out.worldBitangent = uniforms.normalMatrix * in.bitangent;
+    
+    out.texCoord = in.texCoord;
+    out.shadowPosition = uniforms.shadowMatrix * out.worldPosition;
+    out.eyePosition = eyePos.xyz;
+    
+    return out;
+}
+
 fragment GbufferOut gBufferFragment(VertexOut in [[stage_in]],
                                     constant FragmentUniforms& fragmentUniforms [[buffer(BufferIndexFragmentUniforms)]],
                                     constant Material& material [[buffer(BufferIndexFragmentMaterial)]],
@@ -219,15 +241,71 @@ fragment GbufferOut gBufferFragment(VertexOut in [[stage_in]],
     if (fragmentUniforms.hasNormalMap)
     {
         float3 normalMap = normal.sample(textureSampler, in.texCoord).rgb;
-        normalMap = normalMap * 2.0 - 1.0;
+        normalMap = normalize(normalMap * 2.0 - 1.0);
         out.normal = float4(float3x3(in.worldTangent,
                                      in.worldBitangent,
                                      in.worldNormal) * normalMap, 1.0);
     }
     
     out.normal = normalize(out.normal);
-    out.normal.a = shadowCalc(in.shadowPosition, shadowTexture);
-    out.position = in.worldPosition;
+    float shadow = min(1.0, (1.0 - shadowCalc(in.shadowPosition, shadowTexture)) + 0.4);
+    out.normal.a = shadow;
+    out.depth = in.eyePosition.z;
     
     return out;
+}
+
+float4 calcDirectionalLight(VertexOut in, constant Light& light, float3 baseColor, float _specularColor, float3 normalDir, float shadow, float depth)
+{
+    float3 lightDir = normalize(light.position);
+    float diffuseIntensity = saturate(dot(lightDir, normalDir));
+    float3 diffuseColor = baseColor * light.color * diffuseIntensity;
+    float3 eyeSpacePos = normalize(in.eyePosition) * depth;
+    float3 r = reflect(lightDir, normalDir);
+    
+    //float3 v = normalize(in.worldPosition.xyz - fragmentUniforms.cameraPos.xyz);
+    float materialShininess = 10.0;
+    float specularIntensity = pow(saturate(dot(r,-normalize(eyeSpacePos))), materialShininess);
+    float3 specularColor = light.specularColor * float3(_specularColor) * specularIntensity;
+    float3 ambientLight = 0.2 * baseColor;
+   
+    float3 color = shadow * (diffuseColor + specularColor) + ambientLight;
+    //return fog(in.position, float4(color, 1.0f));
+    return float4(color, 1.0f);
+}
+
+
+vertex VertexOut directionalLightVertex(constant float2* quadVertices [[buffer(BufferIndexPosition)]],
+                                        constant Uniforms& uniforms  [[buffer(BufferIndexUniforms)]],
+                                        uint vid [[vertex_id]])
+{
+    VertexOut out;
+    out.position = float4(quadVertices[vid], 0.0, 1.0);
+    
+    float4 unprojectedEyeCoord = uniforms.projectionMatrixInverse * out.position;
+    out.eyePosition = unprojectedEyeCoord.xyz / unprojectedEyeCoord.w;
+
+    return out;
+}
+
+fragment float4 directionalLightFragment(VertexOut in [[stage_in]],
+                                         constant Light& light [[buffer(BufferIndexLight)]],
+                                         constant FragmentUniforms& fragmentUniforms [[buffer(BufferIndexFragmentUniforms)]],
+                                         texture2d<float> albedo_specular [[texture(0)]],
+                                         texture2d<float> normal_shadow [[texture(1)]],
+                                         texture2d<float> depth [[texture(2)]])
+{
+    uint2 texCoord = uint2(in.position.xy);
+    float4 albedoSpecular = albedo_specular.read(texCoord.xy);
+    float specularColor = albedoSpecular.w;
+    //float materialShininess = material.specularExponent;
+    
+    //float materialSpecularColor = material.specularColor.r;
+    float3 baseColor = albedoSpecular.xyz;
+    float4 normal = normal_shadow.read(texCoord.xy);
+    float3 normalDir = normal.xyz;
+    float3 alphaMask = float3(1.0);
+    float shadow = normal.a;
+    
+    return calcDirectionalLight(in, light, baseColor, specularColor, normalDir,shadow, depth.read(texCoord.xy).x);
 }

@@ -97,15 +97,16 @@
 //    f.y = sin(dir.y);
 //    f.z = cos(dir.y) * sin(dir.x);
 //    _front = simd_normalize(f);
-//    _right = simd_normalize(simd_cross(_front, _up));
+//    simd_float3 a = simd_cross(_front, (simd_float3){0.0,1.0,0.0});
+//    _right = simd_normalize(simd_cross(_front, (simd_float3){0.0,1.0,0.0}));
 //    _up = simd_normalize(simd_cross(_right, _front));
 //}
 
 -(void) lookAt:(simd_float3)target
 {
-    simd_float3 f = _position.xyz - target;
+    simd_float3 f = target;
     _front = simd_normalize(f);
-    _right = simd_normalize(simd_cross(_front, _up));
+    _right = simd_normalize(simd_cross(_front, (simd_float3){0.0,1.0,0.0}));
     _up = simd_normalize(simd_cross(_right, _front));
 }
 

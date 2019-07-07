@@ -17,8 +17,8 @@ const int MaxBuffersInFlight = 3;
 @interface Renderer : NSObject <MTKViewDelegate>
 {
     NSMutableArray* _models;
-    NSMutableArray* _uniformBuffers;
-    NSMutableArray* _lightPositionBuffers;
+    NSMutableArray<id<MTLBuffer>>* _uniformBuffers;
+    NSMutableArray<id<MTLBuffer>>* _lightPositionBuffers;
     MTKView* _view;
     Camera* _currentCamera;
     Camera* _shadowCamera;
@@ -36,7 +36,6 @@ const int MaxBuffersInFlight = 3;
     id<MTLTexture> _shadowTexture;
     id<MTLTexture> _albedoTexture;
     id<MTLTexture> _normalTexture;
-    id<MTLTexture> _positionTexture;
     id<MTLTexture> _depthTexture;
     
     id<MTLRenderPipelineState> _shadowPipelineState;
@@ -50,13 +49,14 @@ const int MaxBuffersInFlight = 3;
     
     
     id<MTLBuffer> _quadVertices;
-    id<MTLBuffer> _quadTexCoords;
+    id <MTLBuffer> _lightsData;
+    id <MTLBuffer> _directionalLightBuffer;
     
     Light _pointLights[LightCount];
     Light _directionalLight;
-    Uniforms _uniforms;
     FragmentUniforms _fragUniforms;
     dispatch_semaphore_t _inFlightSemaphore;
+    int _currentBufferIndex;
 }
 
 -(id)initWithView:(MTKView*)view;
